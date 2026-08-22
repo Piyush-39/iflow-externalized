@@ -13,7 +13,7 @@
     "server:dev": "tsx watch src/server.ts",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
-    "vercel-build": "npm ci --prefix frontend && npm run frontend:build",
+    "vercel-build": "npm ci --prefix frontend && VERCEL=1 npm run frontend:build",
     "lint": "eslint server.ts src tests frontend/src frontend/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
