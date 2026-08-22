@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn2:definitions xmlns:bpmn2="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:ifl="http:///com.sap.ifl.model/Ifl.xsd" id="Definitions_1">
+  <bpmn2:collaboration id="Collaboration_1">
+    <bpmn2:participant id="Participant_Process" name="Integration Process" processRef="Process_1"/>
+    <bpmn2:participant id="Participant_Receiver" ifl:type="EndpointRecevier" name="Receiver"/>
+    <bpmn2:messageFlow id="MessageFlow_HTTP" name="HTTP" sourceRef="Participant_Process" targetRef="Participant_Receiver">
+      <bpmn2:extensionElements>
+        <ifl:property><key>ComponentType</key><value>HTTP</value></ifl:property>
+        <ifl:property><key>Address</key><value>https://dev.example.com/orders</value></ifl:property>
+        <ifl:property><key>cmdVariantUri</key><value>ctype::AdapterVariant/cname::HTTP/tp::HTTP/mp::HTTP/direction::Receiver/version::1.0.0</value></ifl:property>
+        <ifl:property><key>direction</key><value>Receiver</value></ifl:property>
+        <ifl:property><key>scriptFile</key><value>processOrders.groovy</value></ifl:property>
+        <ifl:property><key>mappingName</key><value>Orders.mmap</value></ifl:property>
+      </bpmn2:extensionElements>
+    </bpmn2:messageFlow>
+  </bpmn2:collaboration>
+  <bpmn2:process id="Process_1">
+    <bpmn2:sequenceFlow id="SequenceFlow_Original" sourceRef="StartEvent_1" targetRef="EndEvent_1"/>
+  </bpmn2:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1"/>
+</bpmn2:definitions>

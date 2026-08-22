@@ -1,0 +1,44 @@
+{
+  "name": "sap-iflow-externalizer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Safely externalize supported SAP Cloud Integration iFlow parameters.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "dev": "tsx src/index.ts",
+    "externalize": "tsx src/index.ts",
+    "server": "node dist/src/server.js",
+    "server:dev": "tsx watch src/server.ts",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "lint": "eslint src tests frontend/src frontend/vite.config.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0",
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.2.1",
+    "fast-xml-parser": "^5.2.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/adm-zip": "^0.5.7",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.3.0",
+    "@types/supertest": "^6.0.3",
+    "eslint": "^10.9.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^3.2.4"
+  }
+}

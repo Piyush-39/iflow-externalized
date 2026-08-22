@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.tmp/*
+backup/*.zip
+output/*.zip
+output/*.json
+coverage/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+.agents/
+.claude/
+skills-lock.json
+!.tmp/.gitkeep
+!backup/.gitkeep
+!output/.gitkeep
