@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: process.env.VERCEL === "1" ? "../public" : "dist",
-    emptyOutDir: true
+    emptyOutDir: process.env.VERCEL !== "1"
   },
   server: {
     port: 5173,
