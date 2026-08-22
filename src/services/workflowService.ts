@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { AppConfig } from "../config/env.js";
 import type {
@@ -11,6 +12,7 @@ import type {
 import type { Logger } from "../utils/logger.js";
 import { logger } from "../utils/logger.js";
 import { externalizeArtifactFiles } from "./externalizationService.js";
+import type { ArtifactArchive } from "./artifactArchiveService.js";
 import { writeChangeReport } from "./reportService.js";
 import type { SapIntegrationClient } from "./sapIntegrationService.js";
 import { validateIFlowZip } from "./validationService.js";
@@ -29,6 +31,9 @@ export interface WorkflowResult {
   configurations?: SapConfiguration[];
   sapValidation?: SapValidationResult;
   configurationVerification?: { expected: number; found: number; missing: string[] };
+  backupReference: string;
+  outputZipReference: string;
+  reportReference: string;
 }
 
 export interface WorkflowOptions {
@@ -37,12 +42,15 @@ export interface WorkflowOptions {
   projectRoot?: string;
   log?: Logger;
   selectedParameters?: readonly string[];
+  artifactArchive?: ArtifactArchive;
+  workspaceMode?: "local" | "ephemeral";
 }
 
 export class SapArtifactValidationError extends Error {
   constructor(
     readonly validation: SapValidationResult,
     readonly backupPath: string,
+    readonly backupReference: string,
     readonly rolledBack: boolean
   ) {
     super("SAP validation failed; deployment was not attempted");
@@ -90,27 +98,35 @@ function uniqueParameterNames(result: ArtifactExternalizationResult): string[] {
 export async function runExternalization(options: WorkflowOptions): Promise<WorkflowResult> {
   const { config, sap } = options;
   const log = options.log ?? logger;
-  const root = path.resolve(options.projectRoot ?? process.cwd());
+  const workspaceMode = options.workspaceMode ?? "local";
+  const root = workspaceMode === "ephemeral"
+    ? await mkdtemp(path.join(os.tmpdir(), "iflow-operation-"))
+    : path.resolve(options.projectRoot ?? process.cwd());
   const backupDirectory = path.join(root, "backup");
   const outputDirectory = path.join(root, "output");
   const tempDirectory = path.join(root, ".tmp");
   await Promise.all([mkdir(backupDirectory, { recursive: true }), mkdir(outputDirectory, { recursive: true }), mkdir(tempDirectory, { recursive: true })]);
 
-  const metadata = await sap.getArtifactMetadata(config.iflowId, config.iflowVersion);
-  const originalZip = await sap.downloadIFlow(config.iflowId, config.iflowVersion);
-  const backupPath = await writeUniqueBackup(
-    backupDirectory,
-    `${safeFilePart(metadata.Name || config.iflowId)}_${timestamp()}`,
-    originalZip
-  );
-  log.info("BACKUP", "Original saved", { backupPath });
-
-  const extracted = await extractIFlow(originalZip, tempDirectory);
-  log.info("EXTRACT", `Found ${path.basename(extracted.iflowPath)}`);
-  const propertiesPath = path.join(extracted.directory, ...PARAMETERS_PATH.split("/"));
-  const propdefPath = path.join(extracted.directory, ...PARAMDEF_PATH.split("/"));
-
+  let extractedDirectory: string | undefined;
   try {
+    const metadata = await sap.getArtifactMetadata(config.iflowId, config.iflowVersion);
+    const originalZip = await sap.downloadIFlow(config.iflowId, config.iflowVersion);
+    const backupPath = await writeUniqueBackup(
+      backupDirectory,
+      `${safeFilePart(metadata.Name || config.iflowId)}_${timestamp()}`,
+      originalZip
+    );
+    const backupReference = options.artifactArchive
+      ? await options.artifactArchive.save("backup", path.basename(backupPath), originalZip, "application/zip")
+      : backupPath;
+    log.info("BACKUP", "Original saved", { backupReference });
+
+    const extracted = await extractIFlow(originalZip, tempDirectory);
+    extractedDirectory = extracted.directory;
+    log.info("EXTRACT", `Found ${path.basename(extracted.iflowPath)}`);
+    const propertiesPath = path.join(extracted.directory, ...PARAMETERS_PATH.split("/"));
+    const propdefPath = path.join(extracted.directory, ...PARAMDEF_PATH.split("/"));
+
     const [iflowXml, parametersProperties, parametersDefinitionXml] = await Promise.all([
       readFile(extracted.iflowPath, "utf8"), optionalText(propertiesPath), optionalText(propdefPath)
     ]);
@@ -147,6 +163,9 @@ export async function runExternalization(options: WorkflowOptions): Promise<Work
     const outputZipPath = path.join(outputDirectory, `${safeFilePart(config.iflowId)}-externalized.zip`);
     await writeFile(outputZipPath, modifiedZip);
     log.info("ZIP", "Modified artifact created", { outputZipPath });
+    const outputZipReference = options.artifactArchive
+      ? await options.artifactArchive.save("output", path.basename(outputZipPath), modifiedZip, "application/zip")
+      : outputZipPath;
 
     const report: ExternalizationReport = {
       iflowId: config.iflowId,
@@ -165,17 +184,27 @@ export async function runExternalization(options: WorkflowOptions): Promise<Work
       parameters: result.parameters,
       skipped: result.skipped
     };
-    await writeChangeReport(report, path.join(outputDirectory, "externalization-report.json"), log);
+    const reportPath = path.join(outputDirectory, "externalization-report.json");
+    await writeChangeReport(report, reportPath, log);
+    const reportReference = options.artifactArchive
+      ? await options.artifactArchive.save("report", path.basename(reportPath), await readFile(reportPath), "application/json")
+      : reportPath;
 
     if (config.dryRun) {
       log.warn("DRY-RUN", "DRY RUN ENABLED");
       log.warn("DRY-RUN", "SAP Integration Suite was NOT modified.");
-      return { metadata, result, backupPath, outputZipPath, uploaded: false, deployed: false };
+      return {
+        metadata, result, backupPath, outputZipPath, backupReference, outputZipReference, reportReference,
+        uploaded: false, deployed: false
+      };
     }
 
     if (!result.changed) {
       log.info("UPLOAD", "No update required.");
-      return { metadata, result, backupPath, outputZipPath, uploaded: false, deployed: false };
+      return {
+        metadata, result, backupPath, outputZipPath, backupReference, outputZipReference, reportReference,
+        uploaded: false, deployed: false
+      };
     }
 
     log.info("UPLOAD", "Updating SAP artifact");
@@ -193,13 +222,13 @@ export async function runExternalization(options: WorkflowOptions): Promise<Work
       if (config.autoRollbackOnFailure) {
         await sap.restoreOriginalIFlow(config.iflowId, config.iflowVersion, metadata.Name, originalZip);
         const rollbackValidation = await sap.validateIFlow(config.iflowId, config.iflowVersion);
-        if (!rollbackValidation.passed) throw new Error(`SAP validation failed and automatic rollback could not be validated. Backup: ${backupPath}`);
+        if (!rollbackValidation.passed) throw new Error(`SAP validation failed and automatic rollback could not be validated. Backup: ${backupReference}`);
         log.warn("ROLLBACK", "Original artifact restored and validated");
         rolledBack = true;
       } else {
-        log.warn("ROLLBACK", `Automatic rollback is disabled. Original backup: ${backupPath}`);
+        log.warn("ROLLBACK", `Automatic rollback is disabled. Original backup: ${backupReference}`);
       }
-      throw new SapArtifactValidationError(validation, backupPath, rolledBack);
+      throw new SapArtifactValidationError(validation, backupPath, backupReference, rolledBack);
     }
     log.info("SAP-VALIDATE", "Validation passed");
 
@@ -222,11 +251,13 @@ export async function runExternalization(options: WorkflowOptions): Promise<Work
       log.info("DEPLOY", "Design-time artifact updated; deployment was not requested");
     }
     return {
-      metadata, result, backupPath, outputZipPath, uploaded: true, deployed, configurations,
+      metadata, result, backupPath, outputZipPath, backupReference, outputZipReference, reportReference,
+      uploaded: true, deployed, configurations,
       sapValidation: validation,
       configurationVerification: { expected: expected.length, found: expected.length - missing.length, missing }
     };
   } finally {
-    await rm(extracted.directory, { recursive: true, force: true });
+    if (extractedDirectory) await rm(extractedDirectory, { recursive: true, force: true });
+    if (workspaceMode === "ephemeral") await rm(root, { recursive: true, force: true });
   }
 }

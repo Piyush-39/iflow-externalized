@@ -146,6 +146,21 @@ describe("SAP-compatible externalization", () => {
     expect(updateIFlow).not.toHaveBeenCalled();
   });
 
+  it("archives serverless backups, output ZIPs, and reports before returning", async () => {
+    const updateIFlow = vi.fn();
+    const sap = fakeSap(artifactZip(await fixture("http-receiver.iflw")), updateIFlow);
+    const save = vi.fn(async (category: string, fileName: string) => `iflow-externalizer/${category}/${fileName}`);
+    const result = await runExternalization({
+      config: config(true), sap, log: silentLogger(), workspaceMode: "ephemeral",
+      artifactArchive: { save }
+    });
+    expect(save.mock.calls.map((call) => call[0])).toEqual(["backup", "output", "report"]);
+    expect(result.backupReference).toMatch(/^iflow-externalizer\/backup\//);
+    expect(result.outputZipReference).toMatch(/^iflow-externalizer\/output\//);
+    expect(result.reportReference).toMatch(/^iflow-externalizer\/report\//);
+    expect(updateIFlow).not.toHaveBeenCalled();
+  });
+
   it("is idempotent on a second execution", async () => {
     const first = await externalize();
     const second = await externalize(first.modifiedXml, first.parametersProperties, first.parametersDefinitionXml);
@@ -298,7 +313,7 @@ function config(dryRun: boolean): AppConfig {
     sapBaseUrl: "https://tenant.example.com", sapClientId: "id", sapClientSecret: "secret",
     sapTokenUrl: "https://auth.example.com/token", iflowId: "TestFlow", iflowVersion: "active",
     dryRun, deployAfterUpdate: false, autoRollbackOnFailure: false,
-    externalizeContentModifierBody: false
+    externalizeContentModifierBody: false, enableUpdateApi: false
   };
 }
 

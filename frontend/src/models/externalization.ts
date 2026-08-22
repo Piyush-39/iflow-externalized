@@ -54,6 +54,7 @@ export interface OperationOutcome {
   backupCreated: boolean;
   backupFile: string;
   outputZipFile: string;
+  reportFile?: string;
   localValidation: "passed";
   sapValidation: "passed" | "not-run";
   configurationVerification: "passed" | "not-run";
@@ -63,6 +64,8 @@ export interface SapStatus {
   configured: boolean;
   tenantUrl: string;
   credentials: "server-managed";
+  updateEnabled: boolean;
+  durableStorage: "private-blob" | "local" | "not-configured";
 }
 
 export type ParameterFilter = "all" | "adapter" | "content-modifier" | "existing" | "new" | "skipped";

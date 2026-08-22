@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
 .tmp/*
 backup/*.zip
 output/*.zip
@@ -9,6 +11,8 @@ coverage/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+public/
+.vercel/
 .agents/
 .claude/
 skills-lock.json

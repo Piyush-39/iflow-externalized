@@ -74,7 +74,8 @@ export function useIFlowExternalizer() {
     analyze, dryRun: () => runOperation("dry-run"), update: () => runOperation("update"), toggle,
     selectAll: () => setSelected(new Set(selectable)), clearAll: () => setSelected(new Set()),
     canAnalyze: Boolean(iflowId.trim() && sapStatus?.configured && !busy),
-    canExecute: Boolean(analysis && selected.size > 0 && sapStatus?.configured && !busy)
+    canExecute: Boolean(analysis && selected.size > 0 && sapStatus?.configured && !busy),
+    canUpdate: Boolean(analysis && selected.size > 0 && sapStatus?.configured && sapStatus.updateEnabled && !busy)
   };
 }
 

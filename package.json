@@ -13,7 +13,8 @@
     "server:dev": "tsx watch src/server.ts",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
-    "lint": "eslint src tests frontend/src frontend/vite.config.ts",
+    "vercel-build": "npm ci --prefix frontend && npm run frontend:build",
+    "lint": "eslint server.ts src tests frontend/src frontend/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -22,6 +23,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.0",
     "adm-zip": "^0.6.0",
     "axios": "^1.11.0",
     "dotenv": "^17.2.1",

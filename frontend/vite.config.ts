@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    outDir: process.env.VERCEL === "1" ? "../public" : "dist",
+    emptyOutDir: true
+  },
   server: {
     port: 5173,
     proxy: {

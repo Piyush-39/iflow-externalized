@@ -54,11 +54,14 @@ DRY_RUN=true
 DEPLOY_AFTER_UPDATE=false
 AUTO_ROLLBACK_ON_FAILURE=false
 EXTERNALIZE_CONTENT_MODIFIER_BODY=false
+ENABLE_UPDATE_API=false
 ```
 
 Credentials are required even in dry run because the artifact is downloaded from SAP. Boolean flags accept only `true` or `false`.
 
 `EXTERNALIZE_CONTENT_MODIFIER_BODY` is disabled by default. When explicitly enabled, only a single static body no longer than 200 characters is eligible; structured XML, multiline bodies, expressions, and larger bodies are still skipped.
+
+`ENABLE_UPDATE_API` applies only to the REST API. It defaults to `false`, so the hosted UI can analyze and run dry runs but cannot modify SAP until an administrator deliberately enables it. The CLI continues to use `--dry-run` or `--update` directly.
 
 ## Install, verify, and run the CLI
 
@@ -136,6 +139,42 @@ Available routes:
 Analyze is read-only. Dry run creates a backup, modified ZIP, local validation result, and report without PUT. Externalize requires an explicit non-empty selection, always validates, verifies `/Configurations`, and never deploys from the REST interface.
 
 The UI provides source/status filters, search, select/clear controls, sensitive-value masking, before/after preview, a confirmation dialog, pipeline status, SAP validation errors, and dry-run/update results.
+
+## Deploying the complete application on Vercel
+
+The repository is configured as one Vercel project: Vite builds the React UI into `public/`, while the root `server.ts` exports the existing Express API as one Vercel Function. The CLI and REST API still use the same workflow and externalization services.
+
+1. In Vercel, import `Piyush-39/iflow-externalized` and keep the project root as the repository root. The committed `vercel.json` supplies the build command and a 300-second function duration.
+2. Add these server-side environment variables for Production and Preview as appropriate:
+
+   ```dotenv
+   SAP_IS_BASE_URL=https://your-tenant.example.com
+   SAP_CLIENT_ID=your-client-id
+   SAP_CLIENT_SECRET=your-client-secret
+   SAP_TOKEN_URL=https://your-oauth-host.example.com/oauth/token
+   DEPLOY_AFTER_UPDATE=false
+   AUTO_ROLLBACK_ON_FAILURE=false
+   EXTERNALIZE_CONTENT_MODIFIER_BODY=false
+   ENABLE_UPDATE_API=false
+   ```
+
+   `SAP_IFLOW_ID` and `DRY_RUN` are CLI inputs and are not required by the hosted API. Never create `VITE_` variables for OAuth credentials; such variables are exposed to the browser.
+3. From the Vercel project, create and connect a **private Vercel Blob** store. Vercel adds `BLOB_READ_WRITE_TOKEN` to the project automatically. Do not paste that token into Git or expose it to the frontend.
+4. Enable Vercel Deployment Protection / Vercel Authentication for every environment that can reach the SAP-mutating API. The API is intentionally not a public anonymous integration endpoint.
+5. Deploy with `ENABLE_UPDATE_API=false`, open the generated URL, verify SAP status, analyze a non-production iFlow, and complete a dry run.
+6. Only after protection and dry-run verification, set `ENABLE_UPDATE_API=true` and redeploy if design-time updates are required. `DEPLOY_AFTER_UPDATE` should remain `false`; the web API never deploys an iFlow.
+
+Vercel Functions have an ephemeral filesystem. Each request therefore uses an isolated directory under `/tmp`, removes it afterward, and stores the original backup, generated ZIP, and redacted JSON report in private Blob storage. The original backup is archived before any SAP PUT. If Blob is not connected, dry-run/update requests fail safely instead of pretending that a temporary file is a durable backup.
+
+For local Vercel-style verification:
+
+```bash
+npm install
+VERCEL=1 npm run vercel-build
+npx vercel dev
+```
+
+The generated `public/` directory, `.vercel/`, all `.env` variants except `.env.example`, local ZIPs, reports, dependencies, and temporary files are ignored by Git.
 
 ## Known limitations
 

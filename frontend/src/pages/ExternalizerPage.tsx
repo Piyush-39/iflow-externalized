@@ -78,10 +78,14 @@ export function ExternalizerPage() {
 
           {selectedParameters.length > 0 && <ExternalizationPreview parameters={selectedParameters} />}
 
+          {!flow.sapStatus?.updateEnabled && <Alert severity="info">
+            SAP updates are disabled on this server. Dry runs remain available. An administrator can enable updates after deployment access is protected.
+          </Alert>}
+
           <Paper variant="outlined" sx={{ p: 2 }}><Stack direction={{ xs: "column", sm: "row" }} justifyContent="flex-end" spacing={1.5}>
             <Button variant="outlined" size="large" startIcon={flow.busy === "dry-run" ? <CircularProgress size={18} /> : <PlayCircleOutlineRounded />}
               disabled={!flow.canExecute} onClick={flow.dryRun}>Dry run</Button>
-            <Button variant="contained" size="large" startIcon={<UploadRounded />} disabled={!flow.canExecute}
+            <Button variant="contained" size="large" startIcon={<UploadRounded />} disabled={!flow.canUpdate}
               onClick={() => setConfirmOpen(true)}>Externalize &amp; Update</Button>
           </Stack></Paper>
         </>}

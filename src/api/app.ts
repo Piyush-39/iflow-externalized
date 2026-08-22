@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from "express";
+import os from "node:os";
 import path from "node:path";
 import type { AppConfig, ServerConfig } from "../config/env.js";
 import { loadServerConfig } from "../config/env.js";
@@ -9,6 +10,8 @@ import type {
   SkippedExternalization
 } from "../models/externalization.js";
 import { SapAuthService } from "../services/sapAuthService.js";
+import type { ArtifactArchive } from "../services/artifactArchiveService.js";
+import { VercelBlobArtifactArchive } from "../services/artifactArchiveService.js";
 import { analyzeIFlow } from "../services/iflowAnalysisService.js";
 import { SapApiError, SapIntegrationService, type SapIntegrationClient } from "../services/sapIntegrationService.js";
 import { runExternalization, SapArtifactValidationError, type WorkflowResult } from "../services/workflowService.js";
@@ -20,6 +23,8 @@ interface ApiDependencies {
   sap?: SapIntegrationClient;
   projectRoot?: string;
   log?: Logger;
+  artifactArchive?: ArtifactArchive;
+  workspaceMode?: "local" | "ephemeral";
 }
 
 interface IFlowRequestBody {
@@ -57,6 +62,7 @@ function assertTenant(value: unknown, configured: string): void {
 }
 
 class ApiInputError extends Error {}
+class ApiAccessError extends Error {}
 
 function safeParameter(parameter: ExternalizedParameter): Record<string, unknown> {
   const { originalValue, attributeCategory: _category, attributeId: _id, ...safe } = parameter;
@@ -104,8 +110,9 @@ function workflowResponse(id: string, version: string, workflow: WorkflowResult)
       uploaded: workflow.uploaded,
       deployed: workflow.deployed,
       backupCreated: true,
-      backupFile: path.basename(workflow.backupPath),
-      outputZipFile: path.basename(workflow.outputZipPath),
+      backupFile: path.basename(workflow.backupReference),
+      outputZipFile: path.basename(workflow.outputZipReference),
+      reportFile: path.basename(workflow.reportReference),
       localValidation: "passed",
       sapValidation: workflow.uploaded ? "passed" : "not-run",
       configurationVerification: workflow.configurationVerification?.missing.length === 0 ? "passed" : "not-run"
@@ -126,6 +133,15 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
   const log = dependencies.log ?? logger;
   const sap = dependencies.sap ?? new SapIntegrationService(config, new SapAuthService(config, log), log);
   const projectRoot = dependencies.projectRoot ?? process.cwd();
+  const isVercel = process.env.VERCEL === "1";
+  const workspaceMode = dependencies.workspaceMode ?? (isVercel ? "ephemeral" : "local");
+  const analysisRoot = workspaceMode === "ephemeral" ? os.tmpdir() : projectRoot;
+  const artifactArchive = dependencies.artifactArchive ?? (isVercel ? new VercelBlobArtifactArchive() : undefined);
+  const durableStorage = artifactArchive && (!isVercel || Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim()))
+    ? "private-blob"
+    : artifactArchive
+      ? "not-configured"
+      : "local";
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "1mb" }));
@@ -134,7 +150,9 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
   app.get("/api/sap/status", (_request, response) => response.json({
     configured: true,
     tenantUrl: config.sapBaseUrl,
-    credentials: "server-managed"
+    credentials: "server-managed",
+    updateEnabled: config.enableUpdateApi,
+    durableStorage
   }));
 
   app.post("/api/iflow/analyze", asyncHandler(async (request, response) => {
@@ -142,7 +160,7 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
     assertTenant(body.tenantUrl, config.sapBaseUrl);
     const id = requiredString(body.iflowId, "iflowId");
     const version = typeof body.version === "string" && body.version.trim() ? body.version.trim() : "active";
-    const analysis = await analyzeIFlow(sap, id, version, projectRoot, config.externalizeContentModifierBody);
+    const analysis = await analyzeIFlow(sap, id, version, analysisRoot, config.externalizeContentModifierBody);
     response.json(analysisResponse(id, version, analysis.metadata.Name, analysis.result));
   }));
 
@@ -153,7 +171,8 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
     const version = typeof body.version === "string" && body.version.trim() ? body.version.trim() : "active";
     const selection = selectedParameters(body.selectedParameters);
     const workflow = await runExternalization({
-      config: requestConfig(config, id, version, true), sap, projectRoot, log,
+      config: requestConfig(config, id, version, true), sap, projectRoot, log, workspaceMode,
+      ...(artifactArchive ? { artifactArchive } : {}),
       ...(selection ? { selectedParameters: selection } : {})
     });
     response.json(workflowResponse(id, version, workflow));
@@ -166,8 +185,12 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
     const version = typeof body.version === "string" && body.version.trim() ? body.version.trim() : "active";
     const selection = selectedParameters(body.selectedParameters);
     if (!selection?.length) throw new ApiInputError("Select at least one new parameter before updating SAP");
+    if (!config.enableUpdateApi) {
+      throw new ApiAccessError("SAP updates are disabled. Set ENABLE_UPDATE_API=true only after protecting this deployment.");
+    }
     const workflow = await runExternalization({
-      config: requestConfig(config, id, version, false), sap, projectRoot, log,
+      config: requestConfig(config, id, version, false), sap, projectRoot, log, workspaceMode,
+      ...(artifactArchive ? { artifactArchive } : {}),
       selectedParameters: selection
     });
     response.json(workflowResponse(id, version, workflow));
@@ -184,6 +207,8 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
   app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
     const status = error instanceof ApiInputError
       ? 400
+      : error instanceof ApiAccessError
+        ? 403
       : error instanceof SapArtifactValidationError
         ? 422
       : error instanceof SapApiError && error.status
@@ -201,7 +226,8 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
         message,
         ...(error instanceof SapArtifactValidationError ? {
           validationErrors: error.validation.errors,
-          backupFile: path.basename(error.backupPath),
+          backupFile: path.basename(error.backupReference),
+          backupReference: error.backupReference,
           rolledBack: error.rolledBack
         } : {})
       }
@@ -221,6 +247,7 @@ function asyncHandler(handler: (request: Request, response: Response) => Promise
 }
 
 function friendlyError(error: unknown, status: number): string {
+  if (error instanceof ApiAccessError) return error.message;
   if (status === 401) return "SAP authentication failed. Check the server-side OAuth credentials.";
   if (status === 403) return "The configured SAP account is not authorized for this operation.";
   if (status === 404) return "The requested iFlow or version was not found in SAP Integration Suite.";

@@ -8,6 +8,7 @@ export interface ServerConfig {
   deployAfterUpdate: boolean;
   autoRollbackOnFailure: boolean;
   externalizeContentModifierBody: boolean;
+  enableUpdateApi: boolean;
 }
 
 export interface AppConfig extends ServerConfig {
@@ -79,6 +80,7 @@ export function loadServerConfig(source: NodeJS.ProcessEnv = process.env): Serve
     sapTokenUrl: validUrl("SAP_TOKEN_URL", required("SAP_TOKEN_URL", source)),
     deployAfterUpdate: booleanValue("DEPLOY_AFTER_UPDATE", false, source),
     autoRollbackOnFailure: booleanValue("AUTO_ROLLBACK_ON_FAILURE", false, source),
-    externalizeContentModifierBody: booleanValue("EXTERNALIZE_CONTENT_MODIFIER_BODY", false, source)
+    externalizeContentModifierBody: booleanValue("EXTERNALIZE_CONTENT_MODIFIER_BODY", false, source),
+    enableUpdateApi: booleanValue("ENABLE_UPDATE_API", false, source)
   };
 }

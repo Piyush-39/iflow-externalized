@@ -37,7 +37,8 @@ function serverConfig(): ServerConfig {
     sapTokenUrl: "https://auth.example.com/token",
     deployAfterUpdate: false,
     autoRollbackOnFailure: false,
-    externalizeContentModifierBody: false
+    externalizeContentModifierBody: false,
+    enableUpdateApi: true
   };
 }
 
@@ -121,5 +122,20 @@ describe("iFlow REST API", () => {
     const response = await request(app).post("/api/iflow/analyze").send({ iflowId: "Test" });
     expect(response.status).toBe(403);
     expect(response.body.error.message).toBe("The configured SAP account is not authorized for this operation.");
+  });
+
+  it("blocks the update API unless the server explicitly enables it", async () => {
+    const updateIFlow = vi.fn();
+    const app = createApiApp({
+      config: { ...serverConfig(), enableUpdateApi: false },
+      sap: fakeSap(zipArtifact(await fixture("content-modifier.iflw")), updateIFlow),
+      log: new StructuredLogger({ log() {}, warn() {}, error() {} })
+    });
+    const response = await request(app).post("/api/iflow/externalize").send({
+      iflowId: "Test", selectedParameters: ["CM_Set_Target_Configuration_SOURCE_SYSTEM"]
+    });
+    expect(response.status).toBe(403);
+    expect(response.body.error.message).toMatch(/updates are disabled/i);
+    expect(updateIFlow).not.toHaveBeenCalled();
   });
 });
