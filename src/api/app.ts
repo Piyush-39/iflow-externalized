@@ -204,6 +204,20 @@ export function createApiApp(dependencies: ApiDependencies = {}): express.Expres
     response.json({ configurations: (await sap.getConfigurations(id, version)).map(redactConfiguration) });
   }));
 
+  if (isVercel) {
+    const frontendRoot = path.join(projectRoot, "public");
+    app.use(express.static(frontendRoot));
+    app.get("/{*splat}", (request, response, next) => {
+      if (request.path.startsWith("/api/")) {
+        next();
+        return;
+      }
+      response.sendFile("index.html", { root: frontendRoot }, (error) => {
+        if (error) next(error);
+      });
+    });
+  }
+
   app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
     const status = error instanceof ApiInputError
       ? 400

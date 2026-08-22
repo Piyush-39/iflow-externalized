@@ -1,5 +1,5 @@
 import AdmZip from "adm-zip";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
@@ -13,6 +13,7 @@ import { StructuredLogger } from "../src/utils/logger.js";
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -63,6 +64,24 @@ async function testApp(sap: SapIntegrationClient) {
 }
 
 describe("iFlow REST API", () => {
+  it("serves the generated frontend and assets on Vercel", async () => {
+    vi.stubEnv("VERCEL", "1");
+    const root = await mkdtemp(path.join(os.tmpdir(), "iflow-api-"));
+    roots.push(root);
+    await mkdir(path.join(root, "public", "assets"), { recursive: true });
+    await writeFile(path.join(root, "public", "index.html"), "<main>iFlow UI</main>");
+    await writeFile(path.join(root, "public", "assets", "app.js"), "globalThis.iflow = true;");
+    const app = createApiApp({
+      config: serverConfig(),
+      sap: fakeSap(zipArtifact(await fixture("content-modifier.iflw"))),
+      projectRoot: root,
+      log: new StructuredLogger({ log() {}, warn() {}, error() {} })
+    });
+
+    expect((await request(app).get("/")).text).toContain("iFlow UI");
+    expect((await request(app).get("/assets/app.js")).text).toContain("globalThis.iflow");
+  });
+
   it("reports health and server-managed SAP credentials without exposing secrets", async () => {
     const app = await testApp(fakeSap(zipArtifact(await fixture("content-modifier.iflw"))));
     expect((await request(app).get("/api/health")).body).toEqual({ status: "ok" });
