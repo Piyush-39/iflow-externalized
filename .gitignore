@@ -11,7 +11,8 @@ coverage/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
-public/
+public/*
+!public/.gitkeep
 .vercel/
 .agents/
 .claude/
